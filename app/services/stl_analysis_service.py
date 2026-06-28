@@ -77,10 +77,7 @@ class STLAnalysisService:
         )
 
         estimated_print_time_minutes = self._estimate_print_time_minutes(
-            volume_cm3=solid_volume_cm3,
-            height_mm=height_mm,
-            surface_area_cm2=surface_area_cm2,
-            layer_height_mm=parameters.layer_height_mm,
+            filament_length_m=filament_length_m,
             infill_percentage=parameters.infill_percentage,
         )
 
@@ -131,17 +128,12 @@ class STLAnalysisService:
 
     def _estimate_print_time_minutes(
         self,
-        volume_cm3: float | None,
-        height_mm: float,
-        surface_area_cm2: float,
-        layer_height_mm: float,
+        filament_length_m: float,
         infill_percentage: float,
-    ) -> int | None:
-        if volume_cm3 is None:
-            return None
+    ) -> int:
+        baseline_minutes_per_meter = 18.0
+        infill_multiplier = 1.0 + (infill_percentage / 100 * 0.5)
 
-        layer_count = height_mm / layer_height_mm
-        volume_component = volume_cm3 * (4.0 + (infill_percentage / 100 * 5.0))
-        layer_component = layer_count * 0.35
-        surface_component = surface_area_cm2 * 0.08
-        return max(1, round(volume_component + layer_component + surface_component))
+        estimated_minutes = filament_length_m * baseline_minutes_per_meter * infill_multiplier
+
+        return max(5, round(estimated_minutes))
