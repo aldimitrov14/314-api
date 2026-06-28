@@ -39,4 +39,6 @@ class STLAnalysisResponse(BaseModel):
     estimated_filament_length_m: float | None = None
     estimated_print_time_minutes: int | None = None
     estimate_method: str
+    estimate_confidence: str
+    volume_estimation_method: str
     warnings: list[str] = Field(default_factory=list)
