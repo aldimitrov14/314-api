@@ -354,45 +354,53 @@ class STLAnalysisService:
         return max(minimum, min(value, maximum))
 
     def _calculate_price(
-    self,
-    estimated_weight_g: float,
-    estimated_print_time_minutes: int,
+        self,
+        estimated_weight_g: float,
+        estimated_print_time_minutes: int,
     ) -> tuple[float, dict[str, float]]:
 
-    MATERIAL_PRICE_PER_G = 0.025
-    MACHINE_RATE_PER_HOUR = 2.50
-    PRINTER_POWER_KW = 0.12
-    ELECTRICITY_PRICE = 0.30
-    SETUP_FEE = 2.00
-    MARKUP = 2.0
-    MINIMUM_PRICE = 5.00
+        MATERIAL_PRICE_PER_G = 0.025
+        MACHINE_RATE_PER_HOUR = 2.50
+        PRINTER_POWER_KW = 0.12
+        ELECTRICITY_PRICE = 0.30
+        SETUP_FEE = 2.00
+        MARKUP = 2.0
+        MINIMUM_PRICE = 5.00
 
-    print_hours = estimated_print_time_minutes / 60
+        print_hours = estimated_print_time_minutes / 60
 
-    material_cost = estimated_weight_g * MATERIAL_PRICE_PER_G
-    machine_cost = print_hours * MACHINE_RATE_PER_HOUR
-    electricity_cost = (
-        print_hours *
-        PRINTER_POWER_KW *
-        ELECTRICITY_PRICE
-    )
+        material_cost = estimated_weight_g * MATERIAL_PRICE_PER_G
 
-    base_cost = (
-        material_cost +
-        machine_cost +
-        electricity_cost +
-        SETUP_FEE
-    )
+        machine_cost = (
+            print_hours *
+            MACHINE_RATE_PER_HOUR
+        )
 
-    final_price = max(
-        base_cost * MARKUP,
-        MINIMUM_PRICE,
-    )
+        electricity_cost = (
+            print_hours *
+            PRINTER_POWER_KW *
+            ELECTRICITY_PRICE
+        )
 
-    return round(final_price, 2), {
-        "material_cost": round(material_cost, 2),
-        "machine_cost": round(machine_cost, 2),
-        "electricity_cost": round(electricity_cost, 2),
-        "setup_fee": round(SETUP_FEE, 2),
-        "markup": round(final_price - base_cost, 2),
-    }
+        base_cost = (
+            material_cost +
+            machine_cost +
+            electricity_cost +
+            SETUP_FEE
+        )
+
+        final_price = max(
+            base_cost * MARKUP,
+            MINIMUM_PRICE,
+        )
+
+        return (
+            round(final_price, 2),
+            {
+                "material_cost": round(material_cost, 2),
+                "machine_cost": round(machine_cost, 2),
+                "electricity_cost": round(electricity_cost, 2),
+                "setup_fee": round(SETUP_FEE, 2),
+                "markup": round(final_price - base_cost, 2),
+            },
+        )
