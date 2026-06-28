@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: stl-estimator-api
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: MAX_UPLOAD_SIZE_MB
+        value: 25
+      - key: RATE_LIMIT_PER_MINUTE
+        value: 10
+      - key: ALLOWED_ORIGINS
+        value: ""
+      - key: API_KEY
+        sync: false
