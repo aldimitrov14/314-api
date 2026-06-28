@@ -52,23 +52,40 @@ class STLAnalysisService:
         estimated_weight_g: float | None = None
         filament_length_m: float | None = None
 
-        if mesh.is_watertight:
-            solid_volume_cm3 = abs(float(mesh.volume)) / 1000
-            volume_cm3 = solid_volume_cm3
+        filament_radius_mm = filament_diameter_mm / 2
+        filament_area_mm2 = math.pi * filament_radius_mm ** 2
 
-            effective_volume_cm3 = self._effective_print_volume_cm3(
-                solid_volume_cm3=solid_volume_cm3,
-                infill_percentage=parameters.infill_percentage,
-            )
-            estimated_weight_g = effective_volume_cm3 * parameters.material_density_g_cm3
-            filament_length_m = self._filament_length_m(
-                volume_cm3=effective_volume_cm3,
-                filament_diameter_mm=parameters.filament_diameter_mm,
-            )
+        if mesh.is_watertight:
+            volume_cm3 = float(mesh.volume / 1000)
+
+            estimate_confidence = "high"
+            volume_estimation_method = "mesh_volume"
+
         else:
             warnings.append(
-                "Mesh is not watertight. Volume, weight and filament estimates are unavailable."
+                "Mesh is not watertight. Estimates are approximate and based on the model bounding box."
             )
+
+            bounding_box_volume_cm3 = (
+                width_mm * depth_mm * height_mm
+            ) / 1000
+
+            ASSUMED_MODEL_OCCUPANCY = 0.15
+
+            volume_cm3 = bounding_box_volume_cm3 * ASSUMED_MODEL_OCCUPANCY
+
+            estimate_confidence = "low"
+            volume_estimation_method = "bounding_box_assumption"
+
+        estimated_weight_g = volume_cm3 * material_density_g_cm3
+
+        filament_volume_mm3 = volume_cm3 * 1000
+
+        filament_length_m = (
+            filament_volume_mm3 /
+            filament_area_mm2 /
+            1000
+        )
 
         estimated_print_time_minutes = self._estimate_print_time_minutes(
             volume_cm3=volume_cm3,
