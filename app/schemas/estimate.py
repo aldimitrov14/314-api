@@ -40,6 +40,9 @@ class STLAnalysisResponse(BaseModel):
     estimated_weight_g: float
     estimated_filament_length_m: float
     estimated_print_time_minutes: int
+    estimated_price: float
+    currency: str
+    price_breakdown: dict[str, float]
     estimate_method: str
     estimate_confidence: str
     volume_estimation_method: str

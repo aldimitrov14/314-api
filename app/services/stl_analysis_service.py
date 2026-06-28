@@ -90,6 +90,11 @@ class STLAnalysisService:
             infill_percentage=parameters.infill_percentage,
         )
 
+        estimated_price, price_breakdown = self._calculate_price(
+            estimated_weight_g=estimated_weight_g,
+            estimated_print_time_minutes=estimated_print_time_minutes,
+        )
+
         warnings.append(
             "Print time is a heuristic estimate. For accurate print time, integrate a headless slicer with printer/profile settings."
         )
@@ -118,6 +123,9 @@ class STLAnalysisService:
             estimated_weight_g=round(estimated_weight_g, 2),
             estimated_filament_length_m=round(filament_length_m, 2),
             estimated_print_time_minutes=estimated_print_time_minutes,
+            estimated_price=estimated_price,
+            currency="EUR",
+            price_breakdown=price_breakdown,
             estimate_method="geometry_heuristic_v3",
             estimate_confidence=volume_estimate.confidence,
             volume_estimation_method=volume_estimate.method,
@@ -344,3 +352,47 @@ class STLAnalysisService:
         maximum: float,
     ) -> float:
         return max(minimum, min(value, maximum))
+
+    def _calculate_price(
+    self,
+    estimated_weight_g: float,
+    estimated_print_time_minutes: int,
+    ) -> tuple[float, dict[str, float]]:
+
+    MATERIAL_PRICE_PER_G = 0.025
+    MACHINE_RATE_PER_HOUR = 2.50
+    PRINTER_POWER_KW = 0.12
+    ELECTRICITY_PRICE = 0.30
+    SETUP_FEE = 2.00
+    MARKUP = 2.0
+    MINIMUM_PRICE = 5.00
+
+    print_hours = estimated_print_time_minutes / 60
+
+    material_cost = estimated_weight_g * MATERIAL_PRICE_PER_G
+    machine_cost = print_hours * MACHINE_RATE_PER_HOUR
+    electricity_cost = (
+        print_hours *
+        PRINTER_POWER_KW *
+        ELECTRICITY_PRICE
+    )
+
+    base_cost = (
+        material_cost +
+        machine_cost +
+        electricity_cost +
+        SETUP_FEE
+    )
+
+    final_price = max(
+        base_cost * MARKUP,
+        MINIMUM_PRICE,
+    )
+
+    return round(final_price, 2), {
+        "material_cost": round(material_cost, 2),
+        "machine_cost": round(machine_cost, 2),
+        "electricity_cost": round(electricity_cost, 2),
+        "setup_fee": round(SETUP_FEE, 2),
+        "markup": round(final_price - base_cost, 2),
+    }
