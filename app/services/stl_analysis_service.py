@@ -22,6 +22,14 @@ class PrintEstimateParameters:
     layer_height_mm: float
 
 
+@dataclass(frozen=True)
+class VolumeEstimate:
+    solid_volume_cm3: float
+    confidence: str
+    method: str
+    warning: str | None = None
+
+
 class STLAnalysisService:
     def analyze(
         self,
@@ -42,6 +50,8 @@ class STLAnalysisService:
         if mesh.is_empty:
             raise STLAnalysisError("Uploaded STL mesh is empty.")
 
+        self._clean_mesh(mesh)
+
         bounds = mesh.bounds
         extents = mesh.extents
 
@@ -52,23 +62,19 @@ class STLAnalysisService:
 
         warnings: list[str] = []
 
-        if mesh.is_watertight:
-            solid_volume_cm3 = abs(float(mesh.volume)) / 1000
-            estimate_confidence = "medium"
-            volume_estimation_method = "mesh_volume"
-        else:
-            bounding_box_volume_cm3 = (width_mm * depth_mm * height_mm) / 1000
-            assumed_model_occupancy = 0.15
-            solid_volume_cm3 = bounding_box_volume_cm3 * assumed_model_occupancy
-            estimate_confidence = "low"
-            volume_estimation_method = "bounding_box_assumption"
+        volume_estimate = self._estimate_solid_volume_cm3(
+            mesh=mesh,
+            width_mm=width_mm,
+            depth_mm=depth_mm,
+            height_mm=height_mm,
+            surface_area_cm2=surface_area_cm2,
+        )
 
-            warnings.append(
-                "Mesh is not watertight. Volume, weight, filament usage and print time are approximate estimates based on the model bounding box."
-            )
+        if volume_estimate.warning:
+            warnings.append(volume_estimate.warning)
 
         effective_volume_cm3 = self._effective_print_volume_cm3(
-            solid_volume_cm3=solid_volume_cm3,
+            solid_volume_cm3=volume_estimate.solid_volume_cm3,
             infill_percentage=parameters.infill_percentage,
         )
 
@@ -107,16 +113,198 @@ class STLAnalysisService:
                 max_y_mm=round(float(bounds[1][1]), 2),
                 max_z_mm=round(float(bounds[1][2]), 2),
             ),
-            volume_cm3=round(solid_volume_cm3, 2),
+            volume_cm3=round(volume_estimate.solid_volume_cm3, 2),
             surface_area_cm2=round(surface_area_cm2, 2),
             estimated_weight_g=round(estimated_weight_g, 2),
             estimated_filament_length_m=round(filament_length_m, 2),
             estimated_print_time_minutes=estimated_print_time_minutes,
-            estimate_method="geometry_heuristic_v2",
-            estimate_confidence=estimate_confidence,
-            volume_estimation_method=volume_estimation_method,
+            estimate_method="geometry_heuristic_v3",
+            estimate_confidence=volume_estimate.confidence,
+            volume_estimation_method=volume_estimate.method,
             warnings=warnings,
         )
+
+    def _clean_mesh(self, mesh: trimesh.Trimesh) -> None:
+        try:
+            mesh.remove_unreferenced_vertices()
+        except Exception:
+            pass
+
+        try:
+            mesh.merge_vertices()
+        except Exception:
+            pass
+
+        try:
+            mesh.update_faces(mesh.unique_faces())
+        except Exception:
+            pass
+
+        try:
+            mesh.update_faces(mesh.nondegenerate_faces())
+        except Exception:
+            pass
+
+        try:
+            mesh.fix_normals()
+        except Exception:
+            pass
+
+        try:
+            mesh.fill_holes()
+        except Exception:
+            pass
+
+        try:
+            mesh.process(validate=True)
+        except Exception:
+            pass
+
+    def _estimate_solid_volume_cm3(
+        self,
+        mesh: trimesh.Trimesh,
+        width_mm: float,
+        depth_mm: float,
+        height_mm: float,
+        surface_area_cm2: float,
+    ) -> VolumeEstimate:
+        if mesh.is_volume:
+            return VolumeEstimate(
+                solid_volume_cm3=abs(float(mesh.volume)) / 1000,
+                confidence="high",
+                method="mesh_volume",
+            )
+
+        convex_hull_volume_cm3 = self._convex_hull_volume_cm3(mesh)
+        bounding_box_volume_cm3 = self._bounding_box_volume_cm3(
+            width_mm=width_mm,
+            depth_mm=depth_mm,
+            height_mm=height_mm,
+        )
+
+        if convex_hull_volume_cm3 is not None:
+            occupancy = self._estimate_convex_hull_occupancy(
+                mesh=mesh,
+                convex_hull_volume_cm3=convex_hull_volume_cm3,
+                bounding_box_volume_cm3=bounding_box_volume_cm3,
+                surface_area_cm2=surface_area_cm2,
+            )
+
+            return VolumeEstimate(
+                solid_volume_cm3=convex_hull_volume_cm3 * occupancy,
+                confidence="medium",
+                method="convex_hull_occupancy",
+                warning=(
+                    "Mesh is not a valid closed solid. Volume, weight, filament usage and print time "
+                    "are estimated from convex-hull occupancy and should be treated as approximate."
+                ),
+            )
+
+        occupancy = self._estimate_bounding_box_occupancy(
+            width_mm=width_mm,
+            depth_mm=depth_mm,
+            height_mm=height_mm,
+            surface_area_cm2=surface_area_cm2,
+        )
+
+        return VolumeEstimate(
+            solid_volume_cm3=bounding_box_volume_cm3 * occupancy,
+            confidence="low",
+            method="bounding_box_occupancy",
+            warning=(
+                "Mesh is not a valid closed solid and convex hull calculation failed. Volume, weight, "
+                "filament usage and print time are rough bounding-box estimates."
+            ),
+        )
+
+    def _convex_hull_volume_cm3(self, mesh: trimesh.Trimesh) -> float | None:
+        try:
+            hull = mesh.convex_hull
+
+            if hull.is_empty:
+                return None
+
+            hull_volume_cm3 = abs(float(hull.volume)) / 1000
+
+            if hull_volume_cm3 <= 0:
+                return None
+
+            return hull_volume_cm3
+        except Exception:
+            return None
+
+    def _bounding_box_volume_cm3(
+        self,
+        width_mm: float,
+        depth_mm: float,
+        height_mm: float,
+    ) -> float:
+        return max((width_mm * depth_mm * height_mm) / 1000, 0.01)
+
+    def _estimate_convex_hull_occupancy(
+        self,
+        mesh: trimesh.Trimesh,
+        convex_hull_volume_cm3: float,
+        bounding_box_volume_cm3: float,
+        surface_area_cm2: float,
+    ) -> float:
+        hull_to_box_ratio = self._clamp(
+            convex_hull_volume_cm3 / bounding_box_volume_cm3,
+            minimum=0.05,
+            maximum=1.0,
+        )
+
+        surface_density = surface_area_cm2 / max(convex_hull_volume_cm3, 0.01)
+        triangle_count = len(mesh.faces)
+
+        if hull_to_box_ratio >= 0.65:
+            base_occupancy = 0.75
+        elif hull_to_box_ratio >= 0.40:
+            base_occupancy = 0.62
+        elif hull_to_box_ratio >= 0.20:
+            base_occupancy = 0.48
+        else:
+            base_occupancy = 0.35
+
+        if surface_density > 30:
+            base_occupancy -= 0.18
+        elif surface_density > 18:
+            base_occupancy -= 0.10
+        elif surface_density < 8:
+            base_occupancy += 0.08
+
+        if triangle_count > 150_000:
+            base_occupancy -= 0.06
+        elif triangle_count < 5_000:
+            base_occupancy += 0.04
+
+        return self._clamp(base_occupancy, minimum=0.22, maximum=0.85)
+
+    def _estimate_bounding_box_occupancy(
+        self,
+        width_mm: float,
+        depth_mm: float,
+        height_mm: float,
+        surface_area_cm2: float,
+    ) -> float:
+        bounding_box_volume_cm3 = self._bounding_box_volume_cm3(
+            width_mm=width_mm,
+            depth_mm=depth_mm,
+            height_mm=height_mm,
+        )
+
+        surface_density = surface_area_cm2 / bounding_box_volume_cm3
+
+        if surface_density < 6:
+            return 0.65
+
+        if surface_density < 12:
+            return 0.50
+
+        if surface_density < 22:
+            return 0.38
+
+        return 0.28
 
     def _effective_print_volume_cm3(
         self,
@@ -146,3 +334,11 @@ class STLAnalysisService:
         infill_multiplier = 1.0 + ((infill_percentage / 100) * 0.5)
         estimated_minutes = filament_length_m * baseline_minutes_per_meter * infill_multiplier
         return max(5, round(estimated_minutes))
+
+    def _clamp(
+        self,
+        value: float,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        return max(minimum, min(value, maximum))
