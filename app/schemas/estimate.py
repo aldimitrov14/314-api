@@ -17,9 +17,11 @@ class BoundingBox(BaseModel):
 
 
 class EstimateRequestMetadata(BaseModel):
+    printer: str = Field(default="bambu_p1s")
     material: str = Field(default="PLA")
     material_density_g_cm3: float = Field(default=1.24, gt=0, le=25)
     filament_diameter_mm: float = Field(default=1.75, gt=0, le=5)
+    nozzle_diameter_mm: float = Field(default=0.4, gt=0, le=2)
     infill_percentage: float = Field(default=20, ge=0, le=100)
     layer_height_mm: float = Field(default=0.2, gt=0, le=1)
 
@@ -33,11 +35,11 @@ class STLAnalysisResponse(BaseModel):
     vertex_count: int
     dimensions: Dimensions
     bounding_box: BoundingBox
-    volume_cm3: float | None = None
+    volume_cm3: float
     surface_area_cm2: float
-    estimated_weight_g: float | None = None
-    estimated_filament_length_m: float | None = None
-    estimated_print_time_minutes: int | None = None
+    estimated_weight_g: float
+    estimated_filament_length_m: float
+    estimated_print_time_minutes: int
     estimate_method: str
     estimate_confidence: str
     volume_estimation_method: str

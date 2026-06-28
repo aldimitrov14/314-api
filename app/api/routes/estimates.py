@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+
 from app.api.dependencies.api_key import require_api_key
 from app.core.config import get_settings
 from app.core.rate_limit import limiter
@@ -28,11 +29,13 @@ router = APIRouter(prefix="/v1/estimates", tags=["Estimates"])
 )
 @limiter.limit(lambda: f"{get_settings().rate_limit_per_minute}/minute")
 async def analyze_stl(
-    request: Request,  # required by SlowAPI
+    request: Request,
     file: UploadFile = File(...),
+    printer: str = Form(default="bambu_p1s"),
     material: str = Form(default="PLA"),
     material_density_g_cm3: float = Form(default=1.24),
     filament_diameter_mm: float = Form(default=1.75),
+    nozzle_diameter_mm: float = Form(default=0.4),
     infill_percentage: float = Form(default=20),
     layer_height_mm: float = Form(default=0.2),
 ) -> STLAnalysisResponse:
@@ -67,6 +70,7 @@ async def analyze_stl(
         )
 
     file_bytes = await file.read(settings.max_upload_size_bytes + 1)
+
     if len(file_bytes) > settings.max_upload_size_bytes:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -85,14 +89,17 @@ async def analyze_stl(
         )
 
     parameters = PrintEstimateParameters(
+        printer=printer,
         material=material,
         material_density_g_cm3=material_density_g_cm3,
         filament_diameter_mm=filament_diameter_mm,
+        nozzle_diameter_mm=nozzle_diameter_mm,
         infill_percentage=infill_percentage,
         layer_height_mm=layer_height_mm,
     )
 
     service = STLAnalysisService()
+
     try:
         return service.analyze(file_bytes=file_bytes, filename=file.filename, parameters=parameters)
     except STLAnalysisError as exc:

@@ -13,9 +13,11 @@ class STLAnalysisError(ValueError):
 
 @dataclass(frozen=True)
 class PrintEstimateParameters:
+    printer: str
     material: str
     material_density_g_cm3: float
     filament_diameter_mm: float
+    nozzle_diameter_mm: float
     infill_percentage: float
     layer_height_mm: float
 
@@ -36,6 +38,7 @@ class STLAnalysisService:
             raise STLAnalysisError("Uploaded STL did not contain a single valid mesh.")
 
         mesh = loaded_mesh
+
         if mesh.is_empty:
             raise STLAnalysisError("Uploaded STL mesh is empty.")
 
@@ -51,14 +54,14 @@ class STLAnalysisService:
 
         if mesh.is_watertight:
             solid_volume_cm3 = abs(float(mesh.volume)) / 1000
+            estimate_confidence = "medium"
             volume_estimation_method = "mesh_volume"
-            estimate_confidence = "high"
         else:
             bounding_box_volume_cm3 = (width_mm * depth_mm * height_mm) / 1000
             assumed_model_occupancy = 0.15
             solid_volume_cm3 = bounding_box_volume_cm3 * assumed_model_occupancy
-            volume_estimation_method = "bounding_box_assumption"
             estimate_confidence = "low"
+            volume_estimation_method = "bounding_box_assumption"
 
             warnings.append(
                 "Mesh is not watertight. Volume, weight, filament usage and print time are approximate estimates based on the model bounding box."
@@ -109,18 +112,26 @@ class STLAnalysisService:
             estimated_weight_g=round(estimated_weight_g, 2),
             estimated_filament_length_m=round(filament_length_m, 2),
             estimated_print_time_minutes=estimated_print_time_minutes,
-            estimate_method="geometry_heuristic_v1",
+            estimate_method="geometry_heuristic_v2",
             estimate_confidence=estimate_confidence,
             volume_estimation_method=volume_estimation_method,
             warnings=warnings,
         )
 
-    def _effective_print_volume_cm3(self, solid_volume_cm3: float, infill_percentage: float) -> float:
+    def _effective_print_volume_cm3(
+        self,
+        solid_volume_cm3: float,
+        infill_percentage: float,
+    ) -> float:
         shell_factor = 0.18
         infill_factor = max(0.0, min(infill_percentage, 100.0)) / 100
         return solid_volume_cm3 * (shell_factor + ((1 - shell_factor) * infill_factor))
 
-    def _filament_length_m(self, volume_cm3: float, filament_diameter_mm: float) -> float:
+    def _filament_length_m(
+        self,
+        volume_cm3: float,
+        filament_diameter_mm: float,
+    ) -> float:
         filament_radius_mm = filament_diameter_mm / 2
         filament_area_mm2 = pi * filament_radius_mm**2
         volume_mm3 = volume_cm3 * 1000
@@ -132,8 +143,6 @@ class STLAnalysisService:
         infill_percentage: float,
     ) -> int:
         baseline_minutes_per_meter = 18.0
-        infill_multiplier = 1.0 + (infill_percentage / 100 * 0.5)
-
+        infill_multiplier = 1.0 + ((infill_percentage / 100) * 0.5)
         estimated_minutes = filament_length_m * baseline_minutes_per_meter * infill_multiplier
-
         return max(5, round(estimated_minutes))
