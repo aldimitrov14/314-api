@@ -330,9 +330,11 @@ class STLAnalysisService:
         filament_length_m: float,
         infill_percentage: float,
     ) -> int:
-        baseline_minutes_per_meter = 18.0
-        infill_multiplier = 1.0 + ((infill_percentage / 100) * 0.5)
+        baseline_minutes_per_meter = 8.0
+        infill_multiplier = 1.0 + ((infill_percentage / 100) * 0.35)
+
         estimated_minutes = filament_length_m * baseline_minutes_per_meter * infill_multiplier
+
         return max(5, round(estimated_minutes))
 
     def _clamp(
